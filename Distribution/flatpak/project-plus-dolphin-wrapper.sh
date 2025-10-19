@@ -1,54 +1,78 @@
 #!/bin/sh
+# shellcheck shell=sh
 
-echo "Setup Discord rich presence"
-for i in {0..9}; do
-    test -S $XDG_RUNTIME_DIR/discord-ipc-$i ||
-    ln -sf {app/com.discordapp.Discord,$XDG_RUNTIME_DIR}/discord-ipc-$i;
+:   "${XDG_DATA_HOME:="${HOME?}/.local/share"}" \
+    "${XDG_CONFIG_HOME:="${HOME?}/.config"}" \
+    "${XDG_STATE_HOME:="${HOME?}/.local/state"}" \
+    "${XDG_CACHE_HOME:="${HOME?}/.local/cache"}"
+export XDG_DATA_HOME XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME
+
+printf '%s\n' "Setting up Discord rich presence"
+for discord_rpc_tmpdir in "${XDG_RUNTIME_DIR-}" "${TMPDIR-}" "${TMP-}" "${TEMP-}" '/tmp'; do
+    case "${discord_rpc_tmpdir?}" in ?*)
+        discord_ipc_pipe_index='0'
+        while [ "${discord_ipc_pipe_index?}" -le '9' ]; do
+            discord_ipc_pipe="${discord_rpc_tmpdir?}/discord-ipc-${discord_ipc_pipe_index?}"
+            if ln -s -- "app/com.discordapp.Discord/discord-ipc-${discord_ipc_pipe_index?}" "${discord_ipc_pipe?}"; then
+                printf '%s\n' "Set up Discord rich presence using socket ${discord_ipc_pipe?}"
+                break 2
+            fi
+            : "$((discord_ipc_pipe_index += 1))"
+        done
+    esac
 done
 
-echo "Make directory /var/data/project-plus-dolphin/user/Wii if it doesn't exist"
-mkdir -p /var/data/project-plus-dolphin/Wii
+:   "${DOLPHIN_EMU_DATAPATH:="/app/share/project-plus-dolphin"}"
+:   "${DOLPHIN_EMU_SYSPATH:="${DOLPHIN_EMU_DATAPATH?}/sys"}" \
+    "${DOLPHIN_EMU_FACTORY_USERPATH:="${DOLPHIN_EMU_DATAPATH?}/user"}" \
+    "${DOLPHIN_EMU_USERPATH:="${XDG_DATA_HOME?}/project-plus-dolphin/user"}"
+export DOLPHIN_EMU_USERPATH
 
-echo "Make directory /var/config/project-plus-dolphin if it doesn't exist"
-mkdir -p /var/config/project-plus-dolphin
+printf '%s\n' "Making user directory ${DOLPHIN_EMU_USERPATH?}/Wii if it doesn't exist"
+mkdir -p -- "${DOLPHIN_EMU_USERPATH?}/Wii"
 
-# Create and set variables for the system and user SD card creation dates
-# SystemSDCardCreationDate=`stat --format="%W" /app/share/project-plus-dolphin/sys/Load/WiiSD.raw`
-# UserSDCardCreationDate=`stat --format="%W" /var/data/project-plus-dolphin/Load/WiiSD.raw`
+printf '%s\n' "Making user config directory ${XDG_CONFIG_HOME?}/project-plus-dolphin if it doesn't exist"
+mkdir -p -- "${XDG_CONFIG_HOME?}/project-plus-dolphin"
 
-# echo "Check if there is a newer SD card version"
-# if [ $SystemSDCardCreationDate -gt ${UserSDCardCreationDate:=0} ];
-# then
-#     echo "Make directory /var/data/project-plus-dolphin/Load if it doesn't exist"
-#     mkdir -p /var/data/project-plus-dolphin/Load
-
-#     echo "Copy newer SD card to user data directory"
-#     cp /app/share/project-plus-dolphin/sys/Load/WiiSD.raw /var/data/project-plus-dolphin/Load/WiiSD.raw
+# printf '%s\n' "Checking if there is a newer SD card version"
+# # Create and set variables for the system and user SD card creation dates
+# dolphin_emu_sys_sd_card="${DOLPHIN_EMU_SYSPATH?}/Load/WiiSD.raw" \
+#     dolphin_emu_user_sd_card="${DOLPHIN_EMU_USERPATH?}/Load/WiiSD.raw"
+# dolphin_emu_sys_sd_card_ctime="$(stat --format="%W" --dereference -- "${dolphin_emu_sys_sd_card?}")"
+# dolphin_emu_user_sd_card_ctime="$(stat --format="%W" --dereference -- "${dolphin_emu_user_sd_card?}")"
+# # Compare system and user SD cards' creation dates
+# if [ "${dolphin_emu_sys_sd_card_ctime:-0}" -gt "${dolphin_emu_user_sd_card_ctime:-0}" ]; then
+#     printf '%s\n' "Making user SD card parent directory ${dolphin_emu_user_sd_card%/*} if it doesn't exist"
+#     mkdir -p -- "${dolphin_emu_user_sd_card%/*}"
+#
+#     printf '%s\n' "Copying SD card from sys directory to user directory, replacing any existing destination file with an older modification time"
+#     cp --no-target-directory --update=older -- "${dolphin_emu_sys_sd_card?}" "${dolphin_emu_user_sd_card?}"
 # else
-#     echo "SD card is already at latest version"
+#     printf '%s\n' "Not copying SD card because sys SD card${dolphin_emu_sys_sd_card_ctime:+" (created $(date -d "$dolphin_emu_sys_sd_card_ctime"))"} was not created after user SD card${dolphin_emu_user_sd_card_ctime:+" (created $(date -d "$dolphin_emu_user_sd_card_ctime"))"}"
 # fi
 
-echo "Copy dol files to user data directory if they don't already exist"
-cp -nr /app/share/project-plus-dolphin/sys/Wii/Launcher /var/data/project-plus-dolphin/user/Wii/
+printf '%s\n' "Copy launcher files from sys directory to user directory, replacing no existing destination files"
+cp -R --no-target-directory --update=none -- "${DOLPHIN_EMU_SYSPATH}/Wii/Launcher" "${DOLPHIN_EMU_USERPATH}/Wii/Launcher"
 
-echo "Copy user directory to Flatpak user data directory (Overwritting any files already there with any newer files)"
-cp -ru /app/share/project-plus-dolphin/user /var/data/project-plus-dolphin/
+printf '%s\n' "Copy all files from factory user directory to user directory, replacing any existing destination file with an older modification time"
+cp -R --no-target-directory --update=older -- "${DOLPHIN_EMU_FACTORY_USERPATH}" "${DOLPHIN_EMU_USERPATH}"
 
-# Create and set variables for the system and user HD textures creation dates
-SystemHDTexturesCreationDate=`stat --format="%W" /app/share/project-plus-dolphin/sys/Load/Textures/RSBE01`
-UserHDTexturesCreationDate=`stat --format="%W" /var/data/project-plus-dolphin/user/Load/Textures/RSBE01`
+printf '%s\n' "Checking if there are newer HD RSBE01 textures"
+# Create and set variables for the system and user HD texture directories' creation dates
+dolphin_emu_sys_textures_dir="${DOLPHIN_EMU_SYSPATH?}/Load/Textures/RSBE01" \
+    dolphin_emu_user_textures_dir="${DOLPHIN_EMU_USERPATH?}/Load/Textures/RSBE01"
+dolphin_emu_sys_textures_ctime="$(stat --format="%W" --dereference -- "${dolphin_emu_sys_textures_dir?}")"
+dolphin_emu_user_textures_ctime="$(stat --format="%W" --dereference -- "${dolphin_emu_user_textures_dir?}")"
+# Compare system and user HD texture directories' creation dates
+if [ "${dolphin_emu_sys_textures_ctime:-0}" -gt "${dolphin_emu_user_textures_ctime:-0}" ]; then
+    printf '%s\n' "Making user textures directory ${dolphin_emu_user_textures_dir%/*} if it doesn't exist"
+    mkdir -p -- "${dolphin_emu_user_textures_dir%/*}"
 
-echo "Check if there are newer HD textures"
-if [ $SystemHDTexturesCreationDate -gt ${UserHDTexturesCreationDate:=0} ];
-then
-    echo "Make directory /var/data/project-plus-dolphin/user/Load/Textures if it doesn't exist"
-    mkdir -p /var/data/project-plus-dolphin/Load/Textures
-
-    echo "Copy newer HD textures to user data directory"
-    cp -r /app/share/project-plus-dolphin/sys/Load/Textures/RSBE01 /var/data/project-plus-dolphin/user/Load/Textures
+    printf '%s\n' "Copying RSBE01 textures from sys directory to user directory, replacing any existing destination file with an older modification time"
+    cp -R --no-target-directory --update=older -- "${dolphin_emu_sys_textures_dir?}" "${dolphin_emu_user_textures_dir?}"
 else
-    echo "HD textures are already at latest version"
+    printf '%s\n' "Not copying HD textures because sys RSBE01 textures directory${dolphin_emu_sys_textures_ctime:+" (created $(date -d "$dolphin_emu_sys_textures_ctime"))"} was not created after user RSBE01 textures directory${dolphin_emu_user_textures_ctime:+" (created $(date -d "$dolphin_emu_user_textures_ctime"))"}"
 fi
 
-# Launch Dolphin and point it to the user directory
-project-plus-dolphin -u /var/data/project-plus-dolphin/user "$@"
+# Launch Dolphin with it pointed to the user directory via $DOLPHIN_EMU_USERPATH
+exec project-plus-dolphin "$@"
